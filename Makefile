@@ -1,4 +1,4 @@
-FLAGS=-Wall -Wextra -O3 -flto
+FLAGS=-Wall -Wextra -O3 -flto -march=native
 
 .PHONY: all
 all: gbctc

@@ -37,6 +37,7 @@ static void hex_to_palette(uint32_t hex[4], uint8_t palette[8]);
 static int colour_in_palette(uint32_t hex, uint8_t palette[8]);
 static uint16_t hex_to_gb(uint32_t hex);
 static int palette_in_list(uint8_t palette[8], int n_colours, uint8_t list[MAX_PALETTES][8], uint8_t colours_in_palettes[MAX_PALETTES]);
+static void sort_palette(uint8_t palette[8]);
 static int tile_in_list(uint8_t tile[16], uint8_t list[MAX_TILES * 16], int n_tiles);
 static bool tiles_equal(uint8_t a[16], uint8_t b[16]);
 static struct bitmap load_png(const char *filename);
@@ -69,6 +70,48 @@ int main(int argc, char *argv[])
 		for (uint8_t tx = 0; tx < bitmap.width / 8; tx++) {
 			uint32_t base_idx = 8 * ty * bitmap.width + 8 * tx;
 			uint32_t colours[4] = {bitmap.data[base_idx]};
+			int n_colours = 1;
+			for (uint8_t y = 0; y < 8; y++) {
+				for (uint8_t x = 0; x < 8; x++) {
+					uint32_t idx = base_idx + y * bitmap.width + x;
+					uint32_t px = bitmap.data[idx];
+					int c_idx = -1;
+					for (int i = 0; i < 4; i++) {
+						if (px == colours[i]) {
+							c_idx = i;
+							break;
+						}
+					}
+					if (c_idx < 0) {
+						if (n_colours == 4) {
+							fprintf(stderr, "Error: More than 4 colours in tile (%u, %u).\n", tx, ty);
+							fprintf(stderr, "0: 0x%08X\n", colours[0]);
+							fprintf(stderr, "1: 0x%08X\n", colours[1]);
+							fprintf(stderr, "2: 0x%08X\n", colours[2]);
+							fprintf(stderr, "3: 0x%08X\n", colours[3]);
+							fprintf(stderr, "4: 0x%08X\n", px);
+							exit(EXIT_FAILURE);
+						}
+						colours[n_colours] = px;
+						n_colours++;
+					}
+				}
+			}
+
+			uint8_t cur_palette[8];
+			hex_to_palette(colours, cur_palette);
+			int p_idx = palette_in_list(cur_palette, n_colours, palettes, used_colours_in_palettes);
+			tiles[32 * ty + tx].palette_idx = p_idx;
+			n_palettes = MAX(n_palettes, p_idx + 1);
+		}
+	}
+	for (int p_idx = 0; p_idx < n_palettes; p_idx++) {
+		sort_palette(palettes[p_idx]);
+	}
+	for (uint8_t ty = 0; ty < bitmap.height / 8; ty++) {
+		for (uint8_t tx = 0; tx < bitmap.width / 8; tx++) {
+			uint32_t base_idx = 8 * ty * bitmap.width + 8 * tx;
+			uint32_t colours[4] = {bitmap.data[base_idx]};
 			uint8_t cur_data[16];
 			int n_colours = 1;
 			for (uint8_t y = 0; y < 8; y++) {
@@ -97,7 +140,6 @@ int main(int argc, char *argv[])
 					}
 				}
 			}
-			printf("\n");
 
 			uint8_t cur_palette[8];
 			hex_to_palette(colours, cur_palette);
@@ -126,6 +168,7 @@ int main(int argc, char *argv[])
 	}
 	for (int p_idx = 0; p_idx < n_palettes; p_idx++) {
 		uint8_t *cur_palette = palettes[p_idx];
+		//sort_palette(cur_palette);
 		printf("Palette%d:\n", p_idx);
 		for (int i = 0; i < 4; i++) {
 			printf("  db $%02X, $%02X\n", cur_palette[2 * i], cur_palette[2 * i+1]);
@@ -221,6 +264,29 @@ int palette_in_list(uint8_t palette[8], int n_colours, uint8_t list[MAX_PALETTES
 		}
 	}
 	return -1;
+}
+
+int cmp(const void *a, const void *b)
+{
+	uint32_t sums[2] = {0};
+	uint8_t tmp[4];
+	memcpy(tmp, a, 2);
+	memcpy(tmp + 2, b, 2);
+	for (int i = 0; i < 2; i++) {
+		int r = tmp[2 * i] & 0x1Fu;
+		int g = (tmp[2 * i] & 0x70u) >> 5u;
+		g |= (tmp[2 * i + 1] & 0x03u) << 3u;
+		int b = (tmp[2 * i + 1] & 0x7Cu) >> 2u;
+		sums[i] = r + b + g;
+	}
+	return sums[0] - sums[1];
+}
+
+void sort_palette(uint8_t palette[8]) {
+	uint16_t tmp[4];
+	memcpy(tmp, palette, sizeof(tmp));
+	qsort(tmp, 4, sizeof(*tmp), cmp);
+	memcpy(palette, tmp, sizeof(tmp));
 }
 
 int tile_in_list(uint8_t tile[16], uint8_t list[MAX_TILES * 16], int n_tiles)
