@@ -38,8 +38,10 @@ static int colour_in_palette(uint32_t hex, uint8_t palette[8]);
 static uint16_t hex_to_gb(uint32_t hex);
 static int palette_in_list(uint8_t palette[8], int n_colours, uint8_t list[MAX_PALETTES][8], uint8_t colours_in_palettes[MAX_PALETTES]);
 static void sort_palette(uint8_t palette[8]);
-static int tile_in_list(uint8_t tile[16], uint8_t list[MAX_TILES * 16], int n_tiles);
-static bool tiles_equal(uint8_t a[16], uint8_t b[16]);
+static struct tile tile_in_list(const uint8_t tile[16], uint8_t list[MAX_TILES * 16], int n_tiles);
+static bool tiles_equal(const uint8_t a[16], const uint8_t b[16]);
+static void flip_tile_horizontal(uint8_t tile[16]);
+static void flip_tile_vertical(uint8_t tile[16]);
 static struct bitmap load_png(const char *filename);
 
 int main(int argc, char *argv[])
@@ -111,41 +113,9 @@ int main(int argc, char *argv[])
 	for (uint8_t ty = 0; ty < bitmap.height / 8; ty++) {
 		for (uint8_t tx = 0; tx < bitmap.width / 8; tx++) {
 			uint32_t base_idx = 8 * ty * bitmap.width + 8 * tx;
-			uint32_t colours[4] = {bitmap.data[base_idx]};
 			uint8_t cur_data[16];
-			int n_colours = 1;
-			for (uint8_t y = 0; y < 8; y++) {
-				for (uint8_t x = 0; x < 8; x++) {
-					uint32_t idx = base_idx + y * bitmap.width + x;
-					uint32_t px = bitmap.data[idx];
-					int c_idx = -1;
-					for (int i = 0; i < 4; i++) {
-						if (px == colours[i]) {
-							c_idx = i;
-							break;
-						}
-					}
-					if (c_idx < 0) {
-						if (n_colours == 4) {
-							fprintf(stderr, "Error: More than 4 colours in tile (%u, %u).\n", tx, ty);
-							fprintf(stderr, "0: 0x%08X\n", colours[0]);
-							fprintf(stderr, "1: 0x%08X\n", colours[1]);
-							fprintf(stderr, "2: 0x%08X\n", colours[2]);
-							fprintf(stderr, "3: 0x%08X\n", colours[3]);
-							fprintf(stderr, "4: 0x%08X\n", px);
-							exit(EXIT_FAILURE);
-						}
-						colours[n_colours] = px;
-						n_colours++;
-					}
-				}
-			}
 
-			uint8_t cur_palette[8];
-			hex_to_palette(colours, cur_palette);
-			int p_idx = palette_in_list(cur_palette, n_colours, palettes, used_colours_in_palettes);
-			tiles[32 * ty + tx].palette_idx = p_idx;
-			n_palettes = MAX(n_palettes, p_idx + 1);
+			int p_idx = tiles[32 * ty + tx].palette_idx;
 			for (uint8_t y = 0; y < 8; y++) {
 				uint8_t upper = 0;
 				uint8_t lower = 0;
@@ -161,14 +131,15 @@ int main(int argc, char *argv[])
 				cur_data[2 * y] = lower;
 				cur_data[2 * y + 1] = upper;
 			}
-			int t_idx = tile_in_list(cur_data, tile_data, n_tiles);
-			tiles[32 * ty + tx].data_idx = t_idx;
-			n_tiles = MAX(n_tiles, t_idx + 1);
+			struct tile t = tile_in_list(cur_data, tile_data, n_tiles);
+			tiles[32 * ty + tx].data_idx = t.data_idx;
+			tiles[32 * ty + tx].hflip = t.hflip;
+			tiles[32 * ty + tx].vflip = t.vflip;
+			n_tiles = MAX(n_tiles, t.data_idx + 1);
 		}
 	}
 	for (int p_idx = 0; p_idx < n_palettes; p_idx++) {
 		uint8_t *cur_palette = palettes[p_idx];
-		//sort_palette(cur_palette);
 		printf("Palette%d:\n", p_idx);
 		for (int i = 0; i < 4; i++) {
 			printf("  db $%02X, $%02X\n", cur_palette[2 * i], cur_palette[2 * i+1]);
@@ -194,9 +165,15 @@ int main(int argc, char *argv[])
 	for (uint8_t ty = 0; ty < 32; ty++) {
 		printf("  db ");
 		for (uint8_t tx = 0; tx < 31; tx++) {
-			printf("$%02X, ", tiles[32 * ty + tx].palette_idx);
+			uint8_t byte = tiles[32 * ty + tx].palette_idx;
+			byte |= tiles[32 * ty + tx].hflip << 5;
+			byte |= tiles[32 * ty + tx].vflip << 6;
+			printf("$%02X, ", byte);
 		}
-		printf("$%02X\n", tiles[32 * ty + 31].palette_idx);
+		uint8_t byte = tiles[32 * ty + 31].palette_idx;
+		byte |= tiles[32 * ty + 31].hflip << 5;
+		byte |= tiles[32 * ty + 31].vflip << 6;
+		printf("$%02X\n", byte);
 	}
 
 	printf("Found %d tiles\n", n_tiles);
@@ -289,18 +266,50 @@ void sort_palette(uint8_t palette[8]) {
 	memcpy(palette, tmp, sizeof(tmp));
 }
 
-int tile_in_list(uint8_t tile[16], uint8_t list[MAX_TILES * 16], int n_tiles)
+struct tile tile_in_list(const uint8_t tile[16], uint8_t list[MAX_TILES * 16], int n_tiles)
 {
+	struct tile ret = {0};
+	uint8_t tmp[16];
+	bool found = false;
 	for (int i = 0; i < n_tiles; i++) {
-		if (tiles_equal(tile, &list[16 * i])) {
-			return i;
+		memcpy(tmp, tile, 16);
+		if (tiles_equal(tmp, &list[16 * i])) {
+			ret.data_idx = i;
+			found = true;
+			break;
+		}
+		flip_tile_horizontal(tmp);
+		if (tiles_equal(tmp, &list[16 * i])) {
+			ret.data_idx = i;
+			ret.hflip = true;
+			found = true;
+			break;
+		}
+		flip_tile_horizontal(tmp);
+		flip_tile_vertical(tmp);
+		if (tiles_equal(tmp, &list[16 * i])) {
+			ret.data_idx = i;
+			ret.vflip = true;
+			found = true;
+			break;
+		}
+		flip_tile_horizontal(tmp);
+		if (tiles_equal(tmp, &list[16 * i])) {
+			ret.data_idx = i;
+			ret.hflip = true;
+			ret.vflip = true;
+			found = true;
+			break;
 		}
 	}
-	memcpy(&list[16 * n_tiles], tile, 16);
-	return n_tiles;
+	if (!found) {
+		memcpy(&list[16 * n_tiles], tile, 16);
+		ret.data_idx = n_tiles;
+	}
+	return ret;
 }
 
-bool tiles_equal(uint8_t a[16], uint8_t b[16])
+bool tiles_equal(const uint8_t a[16], const uint8_t b[16])
 {
 	for (int i = 0; i < 16; i++) {
 		if (a[i] != b[i]) {
@@ -308,6 +317,32 @@ bool tiles_equal(uint8_t a[16], uint8_t b[16])
 		}
 	}
 	return true;
+}
+
+void flip_tile_horizontal(uint8_t tile[16])
+{
+	for (int i = 0; i < 16; i++) {
+		for (int b = 0; b < 4; b++) {
+			uint8_t tmp1 = (tile[i] >> b) & 1u;
+			uint8_t tmp2 = (tile[i] >> (7 - b)) & 1u;
+			tile[i] &= ~(1 << b);
+			tile[i] &= ~(1 << (7 - b));
+			tile[i] |= tmp1 << (7 - b);
+			tile[i] |= tmp2 << b;
+		}
+	}
+}
+
+void flip_tile_vertical(uint8_t tile[16])
+{
+	uint16_t tmp[8];
+	memcpy(tmp, tile, 16);
+	for (int i = 0; i < 4; i++) {
+		uint16_t t = tmp[i];
+		tmp[i] = tmp[7 - i];
+		tmp[7 - i] = t;
+	}
+	memcpy(tile, tmp, 16);
 }
 
 #define HEADER_BYTES 8
