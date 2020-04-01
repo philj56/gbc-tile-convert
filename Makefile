@@ -12,6 +12,10 @@ gbctc: main.o
 main.o : main.c
 	${CC} -c -o $@ $< ${FLAGS}
 
+.PHONY: install
+install: gbctc
+	install -D gbctc -t ${DESTDIR}/usr/bin/
+
 clean:
 	rm gbctc
 	rm -f *.o
