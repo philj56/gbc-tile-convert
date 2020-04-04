@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < n_tiles; i++) {
 		printf("  db ");
 		for (int j = 0; j < 15; j++) {
-			printf("$%02X, ", tile_data[16 * i + j]);
+			printf("$%02X,", tile_data[16 * i + j]);
 		}
 		printf("$%02X\n", tile_data[16 * i + 15]);
 	}
@@ -157,9 +157,9 @@ int main(int argc, char *argv[])
 	for (uint8_t ty = 0; ty < 32; ty++) {
 		printf("  db ");
 		for (uint8_t tx = 0; tx < 31; tx++) {
-			printf("$%02X, ", tiles[32 * ty + tx].data_idx);
+			printf("$%02X,", tiles[32 * ty + tx].data_idx + 0x80);
 		}
-		printf("$%02X\n", tiles[32 * ty + 31].data_idx);
+		printf("$%02X\n", tiles[32 * ty + 31].data_idx + 0x80);
 	}
 	printf("Attributes:\n");
 	for (uint8_t ty = 0; ty < 32; ty++) {
@@ -168,7 +168,7 @@ int main(int argc, char *argv[])
 			uint8_t byte = tiles[32 * ty + tx].palette_idx;
 			byte |= tiles[32 * ty + tx].hflip << 5;
 			byte |= tiles[32 * ty + tx].vflip << 6;
-			printf("$%02X, ", byte);
+			printf("$%02X,", byte);
 		}
 		uint8_t byte = tiles[32 * ty + 31].palette_idx;
 		byte |= tiles[32 * ty + 31].hflip << 5;
