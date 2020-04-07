@@ -157,9 +157,9 @@ int main(int argc, char *argv[])
 	for (uint8_t ty = 0; ty < 32; ty++) {
 		printf("  db ");
 		for (uint8_t tx = 0; tx < 31; tx++) {
-			printf("$%02X,", tiles[32 * ty + tx].data_idx + 0x80);
+			printf("$%02X,", tiles[32 * ty + tx].data_idx);
 		}
-		printf("$%02X\n", tiles[32 * ty + 31].data_idx + 0x80);
+		printf("$%02X\n", tiles[32 * ty + 31].data_idx);
 	}
 	printf("Attributes:\n");
 	for (uint8_t ty = 0; ty < 32; ty++) {
